@@ -1,0 +1,243 @@
+# vim: set filetype=sh :
+
+import os.path
+import sys
+
+$PROJECTS_PATH = os.path.expanduser('~/Projects')
+
+$XONSH_SHOW_TRACEBACK = True
+$XONSH_TRACEBACK_LOGFILE = os.path.expanduser('~/xonsh.log')
+
+$SHELL_TYPE = 'best'  # Work-around for #1561
+$XONSH_COLOR_STYLE="monokai"
+
+
+# alias to quit AwesomeWM from the terminal
+def _quit_awesome():
+   print($(ls).splitlines())
+
+aliases['qa'] = _quit_awesome
+$PATH.insert(0, '/usr/local/bin')
+
+import os
+import sys
+import binascii
+
+_ORIG_PATH = list($PATH)
+_ORIG_PROMPT = $PROMPT
+
+#
+# convenience stuff, such as killing recent commands
+#
+
+def _kill_last(args, stdin=None):
+	if __xonsh_active_job__ is None:
+		print("No active job. Aborting.")
+		return
+	cmd = 'kill %s %d' % (''.join(args), __xonsh_all_jobs__[__xonsh_active_job__]['pgrp'])
+	os.system(cmd)
+aliases['kill_last'] = _kill_last
+
+#
+# python virtual environment stuff
+#
+def _workon(args, stdin=None):
+	if args:
+		venv = args[0]
+		venv_path = os.path.join($HOME, '.virtualenvs', venv)
+		if not os.path.exists(venv_path):
+			raise OSError("No such virtualenv: %s", venv_path)
+		$PATH = [ os.path.join(venv_path, 'bin') ] + _ORIG_PATH
+		$VIRTUAL_ENV = venv_path
+		$PROJECT_DIR =  '{0}/{1}'.format($PROJECTS_PATH[0],venv)
+		$PROMPT = "(%s)" % venv + _ORIG_PROMPT
+	else:
+		find $HOME/.virtualenvs -maxdepth 1 -type d | cut -c 35-
+aliases['workon'] = _workon
+
+
+def _deactivate(args, stdin=None):
+	del $VIRTUAL_ENV
+	del $PROJECT_DIR
+	$PATH = list(_ORIG_PATH)
+	$PROMPT = _ORIG_PROMPT
+aliases['deactivate'] = _deactivate
+
+aliases['cdprj'] = ['cd','$PROJECT_DIR']
+
+#
+# encoding
+#
+
+def _to_bytes(what):
+	if isinstance(what, bytes):
+		return bytes
+	else:
+		return str.encode(what)
+
+def _write_bytes(what):
+	sys.stdout.buffer.write(what)
+
+aliases['hex_encode'] = lambda a,i=None: _write_bytes(binascii.hexlify(_to_bytes(i.strip() or a[0])) + b'\n')
+aliases['hex_decode'] = lambda a,i=None: _write_bytes(binascii.unhexlify(_to_bytes(i.strip() or a[0])) + b'\n')
+aliases['wtf'] = lambda a,i=None: print(repr(a),repr(i))
+
+#
+# multiple commands
+#
+
+def _snip_start(args):
+	if len(set([ a[0] for a in args])) == 1:
+		return _snip_start([ a[1:] for a in args])
+	else:
+		return args
+
+def _snip_end(args):
+	if len(set([ a[-1] for a in args])) == 1:
+		return _snip_end([ a[:-1] for a in args])
+	else:
+		return args
+
+def _make_callback(tag):
+	def callback(line, stdin, process):
+		sys.stdout.buffer.write(_to_bytes('%s: '%tag) + _to_bytes(line))
+	return callback
+
+try:
+	import sh
+	import mulpyplexer
+
+	def pyrallel(args):
+		return mulpyplexer.MP([sh.Command(a) for a in args])
+
+	def pyrallel_ssh(hosts, base_cmd="ssh", output=False, callback=None, bg=False):
+		sshs = [ ]
+		snipped = _snip_end(_snip_start(hosts))
+		for h,s in zip(hosts, snipped):
+			cmd = sh.Command(base_cmd)
+			cb = _make_callback(s) if output else callback
+			sshs.append(cmd.bake(h, _out=cb, _err=cb, _bg=bg))
+		return mulpyplexer.MP(sshs)
+
+	running_cmds = None
+	def _cmd_pyrallel_ssh(args, stdin=None):
+		global running_cmds
+
+		if not stdin:
+			print("Please provide some hosts on stdin.")
+			return
+		hosts = stdin.strip().split()
+		cmds = pyrallel_ssh(hosts, output=True, bg=True)
+		for a in args:
+			cmds = cmds.bake(a)
+		running_cmds[:] = cmds()
+		try:
+			running_cmds.wait()
+		except KeyboardInterrupt:
+			[ r.process.kill() for r in running_cmds ]
+
+	aliases['pyrallel_ssh'] = _cmd_pyrallel_ssh
+except ImportError:
+	pass
+
+
+aliases['ll'] = ['ls','-la']
+
+
+import requests
+from bs4 import BeautifulSoup
+
+import datetime
+import time
+
+import threading
+import random
+
+LATEST_NEWS = ';-)'
+$XONSH_SHOW_TRACEBACK = True
+
+DEFAULT_PROMPT = '{BOLD_GREEN}{user}@{hostname} {BOLD_RED}%s{BOLD_CYAN}{cwd}{BOLD_CYAN} {prompt_end}{NO_COLOR}'
+
+class ThreadNewsYcombinator(threading.Thread):
+
+	def __init__(self, name='TestThread'):
+		""" constructor, setting initial variables """
+		self._stopevent = threading.Event()
+		self._sleepperiod = 1.0
+
+		threading.Thread.__init__(self, name=name)
+
+	def run(self):
+		""" main control loop """
+		while not self._stopevent.isSet():
+			try:
+				global LATEST_NEWS
+				hn = requests.get('https://news.ycombinator.com/').content
+				soup = BeautifulSoup(hn, 'html.parser')
+				last_story = soup.find_all("a", "storylink")[0].contents[0]
+				LATEST_NEWS = last_story
+				self._stopevent.wait(self._sleepperiod)
+			except Exception as e:
+				LATEST_NEWS = ";-) Ops!!! \n {}".format(e)
+				pass
+		bye = ['Fui!!!', 'Tchauuu ;-)', 'wow...', 'Opa Opa ...']
+		print("{bye} {name}".format(name=self.getName(),bye=random.choice(bye)))
+
+	def join(self, timeout=None):
+		""" Stop the thread. """
+		self._stopevent.set()
+		threading.Thread.join(self, timeout)
+
+names = ['Boby', 'Deuxxx', 'Paul Alien', 'xxx', 'fofo']
+name = "{name}_{hash}".format(name=random.choice(names),hash=random.getrandbits(128))
+
+workers = []
+for id in range(0,3):
+    tmp = ThreadNewsYcombinator(name=name)
+    workers.append(tmp)
+    tmp.start()
+
+def _exit():
+	for worker in workers:
+		worker.join()
+	exit
+
+aliases['wow'] = _exit
+
+def update_prompt():
+    return ('>>> {BOLD_YELLOW}%s{NO_COLOR} <<<\n' % LATEST_NEWS) + DEFAULT_PROMPT % datetime.datetime.now().strftime(" [%H:%M:%S] ")
+
+$PROMPT = update_prompt
+
+def _greps(args, stdin=None):
+	if args:
+		ps -ef | grep @(args)
+	else:
+		ps -ef
+aliases['greps'] = _greps
+
+def _cdls(args, stdin=None):
+	try:
+		if args:
+			cd @(args[0]) && ls -la
+		else:
+			cd ~ && ls -la
+	except Exception as e:
+		print(e)	
+aliases['cdls'] = _cdls
+
+def _killp():
+	pkill python*
+aliases['killp'] = _killp
+
+def _ffor(n=10):
+    for i in range(10):
+        echo @(i) > @('file_{}.txt'.format(i))
+        cat @('file_{}.txt'.format(i))
+        rm @('file_{}.txt'.format(i))
+    return 1
+aliases['ffor'] = _ffor
+
+$fzf_history_binding = Keys.ControlR
+$fzf_ssh_binding = Keys.ControlS
+
