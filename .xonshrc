@@ -12,7 +12,6 @@ import random
 import requests
 from bs4 import BeautifulSoup
 
-
 $PROJECTS_PATH = os.path.expanduser('~/Projects')
 
 $XONSH_SHOW_TRACEBACK = True
@@ -20,7 +19,6 @@ $XONSH_TRACEBACK_LOGFILE = os.path.expanduser('~/xonsh.log')
 
 $SHELL_TYPE = 'best'  # Work-around for #1561
 $XONSH_COLOR_STYLE="monokai"
-
 
 LATEST_NEWS = ';-)'
 DEFAULT_PROMPT = '{BOLD_GREEN}{user}@{hostname}\n{BOLD_RED}%s{BOLD_CYAN}{cwd}{BOLD_CYAN} {prompt_end}{NO_COLOR}'
@@ -36,7 +34,6 @@ _ORIG_PROMPT = $PROMPT
 #
 # convenience stuff, such as killing recent commands
 #
-
 def _kill_last(args, stdin=None):
 	if __xonsh_active_job__ is None:
 		print("No active job. Aborting.")
@@ -98,6 +95,7 @@ try:
 		return mulpyplexer.MP(sshs)
 
 	running_cmds = None
+
 	def _cmd_pyrallel_ssh(args, stdin=None):
 		global running_cmds
 
@@ -132,13 +130,25 @@ class ThreadNewsYcombinator(threading.Thread):
 		while not self._stopevent.isSet():
 			try:
 				global LATEST_NEWS
-				hn = requests.get('https://news.ycombinator.com/').content
+				
+				urls = [
+					'https://news.ycombinator.com/show', 
+					'https://news.ycombinator.com/newest', 
+					'https://news.ycombinator.com/news'
+				]
+				
+				hn = requests.get(random.choice(urls)).content
 				soup = BeautifulSoup(hn, 'html.parser')
-				last_story = soup.find_all("a", "storylink")[0].contents[0]
-				LATEST_NEWS = last_story
+				new = soup.find_all("a", "storylink")
+				
+				last_story = new[random.randint(0, 9)].contents[0]
+				last_url = new[random.randint(0, 9)].attrs['href']
+				
+				LATEST_NEWS = "{new}\n>>>{url}<<<".format(new=last_story, url=last_url)
+				
 				self._stopevent.wait(self._sleepperiod)
 			except Exception as e:
-				LATEST_NEWS = ";-) Ops!!! \n {}".format(e)
+				#LATEST_NEWS = ";-) Ops!!! \n {}".format(e)
 				pass
 		bye = ['Fui!!!', 'Tchauuu ;-)', 'wow...', 'Opa Opa ...']
 		print("{bye} {name}".format(name=self.getName(),bye=random.choice(bye)))
@@ -164,8 +174,7 @@ def _exit():
 aliases['wow'] = _exit
 
 def update_prompt():
-    return ('>>> {BOLD_YELLOW}%s{NO_COLOR} <<<\n' % LATEST_NEWS) + DEFAULT_PROMPT % datetime.datetime.now().strftime("[%H:%M:%S] ")
-
+    return ('{BOLD_YELLOW}%s{NO_COLOR}\n' % LATEST_NEWS) + DEFAULT_PROMPT % datetime.datetime.now().strftime("[%H:%M:%S] ")
 $PROMPT = update_prompt
 
 def _greps(args, stdin=None):
