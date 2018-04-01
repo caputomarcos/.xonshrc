@@ -3,14 +3,15 @@ import os
 import sys
 import binascii
 
-import datetime
-import time
-
-import threading
 import random
+import time
+import datetime
 
 import requests
+import threading
+
 from bs4 import BeautifulSoup
+from collections import namedtuple
 
 $PROJECTS_PATH = os.path.expanduser('~/Projects')
 
@@ -30,6 +31,63 @@ $PATH.insert(0, '/usr/local/bin')
 
 _ORIG_PATH = list($PATH)
 _ORIG_PROMPT = $PROMPT
+
+_UrbanWord = namedtuple('UrbanWord', 'word meaning example')
+
+class UrbanWord(_UrbanWord):
+	def jsonify(self):
+			return json.dumps({
+			'word': self.word,
+			'meaning': self.meaning,
+			'example': self.example
+		})
+
+class UrbanWordRetriever(object):
+	DEFAULT_URL = 'https://www.urbandictionary.com'
+
+	def __init__(self, day, url=DEFAULT_URL):
+		if day > 6:
+			raise LookupError('Words of the day older than one week from today'
+							' are not available.')
+		self.day = day
+		self.url = url
+
+	@staticmethod
+	def __get_elements_of_class(class_name, soup):
+		elements = []
+		for div in soup.findAll('div', attrs={'class': class_name}):
+			elements.append('\n'.join(div.findAll(text=True)).strip())
+		return elements
+
+	def retrieve(self):
+		content = requests.get(self.url).text
+		soup = BeautifulSoup(content, 'html5lib')
+
+		words = []
+		for div in soup.findAll('a', attrs={'class': 'word'}):
+			words.append(div.text.strip())
+
+		meanings = UrbanWordRetriever.__get_elements_of_class('meaning', soup)
+		example = UrbanWordRetriever.__get_elements_of_class('example', soup)
+
+		return UrbanWord(words[self.day], meanings[self.day],
+   						example[self.day])
+
+def _today():
+	word = UrbanWordRetriever(0).retrieve()
+	print("word: {word}\n\nmeaning: {meaning}\n\nexample: {example}".format(word=word.word, meaning=word.meaning, example=word.example))
+aliases['today'] = _today
+
+def _yesterday():
+	word = UrbanWordRetriever(1).retrieve()
+	print("word: {word}\n\nmeaning: {meaning}\n\nexample: {example}".format(word=word.word, meaning=word.meaning, example=word.example))
+aliases['yesterday'] = _yesterday
+
+def _randomo():
+	url = 'https://www.urbandictionary.com/random.php?page={sort}'.format(sort=random.randint(0,9999))
+	word = UrbanWordRetriever(day=0,url=url).retrieve()
+	print("word: {word}\n\nmeaning: {meaning}\n\nexample: {example}".format(word=word.word, meaning=word.meaning, example=word.example))
+aliases['randomo'] = _randomo
 
 #
 # convenience stuff, such as killing recent commands
@@ -163,9 +221,9 @@ name = "{name}_{hash}".format(name=random.choice(names),hash=random.getrandbits(
 
 workers = []
 for id in range(0,3):
-    tmp = ThreadNewsYcombinator(name=name)
-    workers.append(tmp)
-    tmp.start()
+	tmp = ThreadNewsYcombinator(name=name)
+	workers.append(tmp)
+	tmp.start()
 
 def _exit():
 	for worker in workers:
@@ -199,11 +257,11 @@ def _killp():
 aliases['killp'] = _killp
 
 def _ffor(n=10):
-    for i in range(10):
-        echo @(i) > @('file_{}.txt'.format(i))
-        cat @('file_{}.txt'.format(i))
-        rm @('file_{}.txt'.format(i))
-    return 1
+	for i in range(10):
+		echo @(i) > @('file_{}.txt'.format(i))
+		cat @('file_{}.txt'.format(i))
+		rm @('file_{}.txt'.format(i))
+	return 1
 aliases['ffor'] = _ffor
 
 #
