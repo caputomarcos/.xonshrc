@@ -1,7 +1,17 @@
-# vim: set filetype=python :
-
-import os.path
+# vim: set filetype=python:
+import os
 import sys
+import binascii
+
+import datetime
+import time
+
+import threading
+import random
+
+import requests
+from bs4 import BeautifulSoup
+
 
 $PROJECTS_PATH = os.path.expanduser('~/Projects')
 
@@ -12,16 +22,13 @@ $SHELL_TYPE = 'best'  # Work-around for #1561
 $XONSH_COLOR_STYLE="monokai"
 
 
-# alias to quit AwesomeWM from the terminal
-def _quit_awesome():
-   print($(ls).splitlines())
+LATEST_NEWS = ';-)'
+DEFAULT_PROMPT = '{BOLD_GREEN}{user}@{hostname}\n{BOLD_RED}%s{BOLD_CYAN}{cwd}{BOLD_CYAN} {prompt_end}{NO_COLOR}'
 
-aliases['qa'] = _quit_awesome
+$fzf_history_binding = Keys.ControlR
+$fzf_ssh_binding = Keys.ControlS
+
 $PATH.insert(0, '/usr/local/bin')
-
-import os
-import sys
-import binascii
 
 _ORIG_PATH = list($PATH)
 _ORIG_PROMPT = $PROMPT
@@ -39,36 +46,8 @@ def _kill_last(args, stdin=None):
 aliases['kill_last'] = _kill_last
 
 #
-# python virtual environment stuff
-#
-def _workon(args, stdin=None):
-	if args:
-		venv = args[0]
-		venv_path = os.path.join($HOME, '.virtualenvs', venv)
-		if not os.path.exists(venv_path):
-			raise OSError("No such virtualenv: %s", venv_path)
-		$PATH = [ os.path.join(venv_path, 'bin') ] + _ORIG_PATH
-		$VIRTUAL_ENV = venv_path
-		$PROJECT_DIR =  '{0}/{1}'.format($PROJECTS_PATH[0],venv)
-		$PROMPT = "(%s)" % venv + _ORIG_PROMPT
-	else:
-		find $HOME/.virtualenvs -maxdepth 1 -type d | cut -c 35-
-aliases['workon'] = _workon
-
-
-def _deactivate(args, stdin=None):
-	del $VIRTUAL_ENV
-	del $PROJECT_DIR
-	$PATH = list(_ORIG_PATH)
-	$PROMPT = _ORIG_PROMPT
-aliases['deactivate'] = _deactivate
-
-aliases['cdprj'] = ['cd','$PROJECT_DIR']
-
-#
 # encoding
 #
-
 def _to_bytes(what):
 	if isinstance(what, bytes):
 		return bytes
@@ -85,7 +64,6 @@ aliases['wtf'] = lambda a,i=None: print(repr(a),repr(i))
 #
 # multiple commands
 #
-
 def _snip_start(args):
 	if len(set([ a[0] for a in args])) == 1:
 		return _snip_start([ a[1:] for a in args])
@@ -140,24 +118,6 @@ try:
 except ImportError:
 	pass
 
-
-aliases['ll'] = ['ls','-la']
-
-
-import requests
-from bs4 import BeautifulSoup
-
-import datetime
-import time
-
-import threading
-import random
-
-LATEST_NEWS = ';-)'
-$XONSH_SHOW_TRACEBACK = True
-
-DEFAULT_PROMPT = '{BOLD_GREEN}{user}@{hostname} {BOLD_RED}%s{BOLD_CYAN}{cwd}{BOLD_CYAN} {prompt_end}{NO_COLOR}'
-
 class ThreadNewsYcombinator(threading.Thread):
 
 	def __init__(self, name='TestThread'):
@@ -201,11 +161,10 @@ def _exit():
 	for worker in workers:
 		worker.join()
 	exit
-
 aliases['wow'] = _exit
 
 def update_prompt():
-    return ('>>> {BOLD_YELLOW}%s{NO_COLOR} <<<\n' % LATEST_NEWS) + DEFAULT_PROMPT % datetime.datetime.now().strftime(" [%H:%M:%S] ")
+    return ('>>> {BOLD_YELLOW}%s{NO_COLOR} <<<\n' % LATEST_NEWS) + DEFAULT_PROMPT % datetime.datetime.now().strftime("[%H:%M:%S] ")
 
 $PROMPT = update_prompt
 
@@ -238,6 +197,37 @@ def _ffor(n=10):
     return 1
 aliases['ffor'] = _ffor
 
-$fzf_history_binding = Keys.ControlR
-$fzf_ssh_binding = Keys.ControlS
+#
+# python virtual environment stuff
+#
+def _workon(args, stdin=None):
+	$OLD_PATH = $PWD
+	if args:
+		venv = args[0]
+		venv_path = os.path.join($HOME, '.virtualenvs', venv)
+		if not os.path.exists(venv_path):
+			raise OSError("No such virtualenv: %s", venv_path)
+		$PATH = [ os.path.join(venv_path, 'bin') ] + _ORIG_PATH
+		$VENV = venv
+		$VIRTUAL_ENV = venv_path
+		$PROJECT_DIR =  '{0}/{1}'.format($PROJECTS_PATH[0],venv)
+		$PROMPT =  ('>>> {BOLD_BLUE}%s{NO_COLOR} <<<\n' % $VENV)  + DEFAULT_PROMPT % datetime.datetime.now().strftime("[%H:%M:%S] ")
+		cd $PROJECT_DIR
+	else:
+		find $HOME/.virtualenvs -maxdepth 1 -type d | cut -c 35-	
+aliases['workon'] = _workon
+
+def _deactivate(args, stdin=None):
+	cd $OLD_PATH
+	$PATH = list(_ORIG_PATH)
+	$PROMPT = _ORIG_PROMPT
+	$PROMPT = update_prompt
+	del $VENV
+	del $OLD_PATH
+	del $VIRTUAL_ENV
+	del $PROJECT_DIR
+aliases['deactivate'] = _deactivate
+
+aliases['cdprj'] = ['cd','$PROJECT_DIR']
+aliases['ll'] = ['ls','-la']
 
